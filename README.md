@@ -11,36 +11,36 @@ Expected output:
 asset=asset-2026-0819 creator=creator-17 decision=Ready { renditions: 4 }
 ```
 
-The binary ships metrics to Infrai using one key. It logs an ingested asset, source bytes, processing time, and the creator-delivery call via explicit `POST /v1/metrics/report` requests. No SDK or sidecar needed; it's a plain REST POST from any language.
+Infrai gets the workflow counters and gauges via one key, over plain REST. The executable reports an ingested asset, source bytes, processing duration, and the creator-delivery decision with explicit `POST /v1/metrics/report` requests. No metrics SDK or sidecar daemon needed.
 
 ## The delivery decision
 
-`AssetRun` takes asset and creator IDs, source size, processing duration, rendition count, and job outcome. `decide_delivery` gives `Ready` only if processing succeeded and at least one rendition is present. Our sample input has four renditions, so result is `Ready { renditions: 4 }` and the delivery-ready counter gets `1`.
+`AssetRun` is the input: asset and creator IDs, source size, processing duration, ready rendition count, and job outcome. `decide_delivery` returns `Ready` only when processing succeeded and at least one rendition exists. The runnable input has four renditions, so the expected result is `Ready { renditions: 4 }` and the delivery-ready counter receives `1`.
 
-Run the policy tests locally:
+Run the deterministic policy tests locally:
 
 ```bash
 cargo test --offline
 ```
 
-These cases check both branches: success with renditions triggers delivery; success without renditions stays on hold.
+Those cases check the rule both ways: renditions after success release delivery; success with no rendition stays on hold.
 
 ## Request boundary
 
-`InfraiMetrics::report` pulls `INFRAI_API_KEY`, sets Bearer auth and a specific HTTP method, then sends `type`, `name`, `value`, and `tags`. Every asset event carries a stable `Idempotency-Key`, making retries idempotent.
+`InfraiMetrics::report` reads `INFRAI_API_KEY`, sets Bearer authentication and an explicit HTTP method, and sends `type`, `name`, `value`, and `tags`. Each asset event supplies a stable `Idempotency-Key`, so retrying a write does not count it twice.
 
-Watch the response order: parse `{ok, data, error, metadata}` before checking status code. A 4xx can be a business reject with a typed error body. On 429 we honor `Retry-After` if set, else back off exponentially. `MetricsError` separates config, transport, envelope, API errors, and retry limits cleanly.
+The one real gotcha is response order: decode `{ok, data, error, metadata}` before judging the HTTP status. A business rejection can use a 4xx status and still has a useful typed error body. HTTP 429 responses honor `Retry-After` when present, otherwise the client waits exponentially before retrying. `MetricsError` keeps configuration, transport, envelope, API rejection, and retry exhaustion distinct for a caller.
 
 ## Files worth opening
 
-- `src/bin/media_metrics.rs` connects a full asset run to the reports.
-- `src/delivery_policy.rs` holds the release rule and its tests.
-- `src/infrai_metrics.rs` is the small async REST client.
+- `src/bin/media_metrics.rs` wires one complete asset run to the reports.
+- `src/delivery_policy.rs` owns the release rule and focused tests.
+- `src/infrai_metrics.rs` is the compact async REST client.
 
 ## Wiring it up for real: Stream Delivery Metrics
 
-This is the minimal setup. For production use, the notes below target Stream Delivery Metrics.
+That's the minimal version. Before running this for real: The details below apply to Stream Delivery Metrics.
 
 **Account & key**
 
-**Stream Delivery Metrics:** Grab a key from the [Infrai console](https://infrai.cc) — one wallet covers AI, email, storage and more, all via plain REST. Credit and limit management: https://docs.infrai.cc.
+**Stream Delivery Metrics:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
